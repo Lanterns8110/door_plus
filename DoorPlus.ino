@@ -1,4 +1,4 @@
-#include <ESP8266WiFi.h>
+﻿#include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 #include <DNSServer.h>
 #include <ESP8266WebServer.h>
@@ -19,6 +19,11 @@ const char *mqtt_username = "doorClient";  // MQTT username for authentication
 const char *mqtt_password = "333666999";  // MQTT password for authentication
 const int mqtt_port = 8883;  // MQTT port (TLS)
 
+// 定义GPIO引脚
+int LED_STATE = 16;
+int IN1 = 19;
+int IN2 = 20;
+
 Ticker ticker;
 WiFiClientSecure espClient;
 PubSubClient mqtt_client(espClient);
@@ -30,8 +35,13 @@ void mqttCallback(char *topic, byte *payload, unsigned int length);
 void setup() {
   //初始化串口设置
   Serial.begin(9600);
-  pinMode(LED_BUILTIN, OUTPUT);
 
+  pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(LED_STATE, OUTPUT);
+
+  // 定时器
   ticker.attach(blinkInterval, tickerCount);
 
   // 建立WiFiManager对象
@@ -111,14 +121,86 @@ void connectToMQTTBroker() {
 }
 
 void mqttCallback(char *topic, byte *payload, unsigned int length) {
-    Serial.print("Message received on topic: ");
-    Serial.println(topic);
-    Serial.print("Message:");
-    for (unsigned int i = 0; i < length; i++) {
-        Serial.print((char) payload[i]);
+  Serial.print("Message received on topic: ");
+  Serial.println(topic);
+  Serial.print("Payload (len=");
+  Serial.print(length);
+  Serial.print("):");
+
+  String raw;
+  raw.reserve(length + 1);
+  for (unsigned int i = 0; i < length; i++) {
+    raw += (char)payload[i];
+  }
+  raw.trim();
+  Serial.println(raw);
+
+  // 尝试从 JSON payload 中提取 msg 字段，若失败则把整个 payload 当作命令处理
+  String cmd = "";
+  int idx = raw.indexOf("\"msg\"");
+  if (idx == -1) {
+    idx = raw.indexOf("'msg'");
+  }
+
+  if (idx != -1) {
+    int colon = raw.indexOf(':', idx);
+    if (colon != -1) {
+      // 尝试找到值中的双引号
+      int q1 = raw.indexOf('"', colon);
+      if (q1 != -1) {
+        int q2 = raw.indexOf('"', q1 + 1);
+        if (q2 != -1 && q2 > q1) {
+          cmd = raw.substring(q1 + 1, q2);
+        }
+      } else {
+        // 没有引号时，提取直到逗号或闭括号或空白的连续字母数字串
+        int start = colon + 1;
+        while (start < raw.length() && (raw[start] == ' ' || raw[start] == '\t')) start++;
+        int end = start;
+        while (end < raw.length()) {
+          char c = raw[end];
+          bool ok = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' || c == '-';
+          if (!ok) break;
+          end++;
+        }
+        if (end > start) cmd = raw.substring(start, end);
+      }
     }
-    Serial.println();   
-    Serial.println("-----------------------");
+  }
+
+  if (cmd.length() == 0) {
+    // 退回到将整个 payload 当作命令（例如直接发送 "reverse"）
+    cmd = raw;
+  }
+
+  cmd.trim();
+  // 转为小写以实现不区分大小写的命令匹配
+  for (unsigned int i = 0; i < cmd.length(); i++) {
+    cmd[i] = tolower(cmd[i]);
+  }
+
+  if (cmd == "forward") {
+    digitalWrite(IN1, HIGH);
+    digitalWrite(IN2, LOW);
+    digitalWrite(LED_STATE, HIGH);
+    mqtt_client.publish(mqtt_topic, "ack:forward");
+  } else if (cmd == "reverse") {
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, HIGH);
+    digitalWrite(LED_STATE, LOW);
+    mqtt_client.publish(mqtt_topic, "ack:reverse");
+  } else if (cmd == "stop") {
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, LOW);
+    digitalWrite(LED_STATE, LOW);
+    mqtt_client.publish(mqtt_topic, "ack:stop");
+  } else {
+    Serial.print("Unknown command: ");
+    Serial.println(cmd);
+    mqtt_client.publish(mqtt_topic, "error:unknown_command");
+  }
+
+  Serial.println("-----------------------");
 }
 
 
