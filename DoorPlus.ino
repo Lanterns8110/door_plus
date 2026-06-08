@@ -1,4 +1,4 @@
-﻿#include <ESP8266WiFi.h>
+#include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 #include <DNSServer.h>
 #include <ESP8266WebServer.h>
@@ -37,8 +37,7 @@ void setup() {
   Serial.begin(9600);
 
   pinMode(LED_BUILTIN, OUTPUT);
-  pinMode(IN1, OUTPUT);
-  pinMode(IN2, OUTPUT);
+  // pinMode(IN1, OUTPUT);
   pinMode(LED_STATE, OUTPUT);
 
   // 定时器
@@ -194,10 +193,6 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
     digitalWrite(IN2, LOW);
     digitalWrite(LED_STATE, LOW);
     mqtt_client.publish(mqtt_topic, "ack:stop");
-  } else {
-    Serial.print("Unknown command: ");
-    Serial.println(cmd);
-    mqtt_client.publish(mqtt_topic, "error:unknown_command");
   }
 
   Serial.println("-----------------------");
